@@ -1,21 +1,22 @@
 const scraperService = require('../services/scraperService');
 const recognizer = require('../config/recognizer');
 const { Profile, ProfileImage } = require('../models');
+//const cleanupService = require('../services/cleanupService');
 
-let isScraping = false;
 
 module.exports = {
     startScraping: async (req, res) => {
-        if (isScraping) {
-            return res.status(400).json({ error: 'Scraping already in progress' });
+
+        const { token } = req.body
+        if (!req.body.token) {
+            return res.status(400).json({ error: 'token is required' });
         }
 
-        isScraping = true;
-        res.json({ message: 'Scraping started' });
+        res.json({ message: 'Scraping started with', token: token });
 
         try {
-            while (isScraping) {
-                const batch = await scraperService.scrapeBatch();
+            while (true) {
+                const batch = await scraperService.scrapeBatch(token);
                 for (const profileData of batch) {
                     try {
                         // Save profile to DB
@@ -34,6 +35,7 @@ module.exports = {
                                         signature
                                     });
                                 }
+                                console.log(token);
                             } catch (error) {
                                 console.error(`Image processing error: ${error.message}`);
                             }
@@ -45,12 +47,10 @@ module.exports = {
             }
         } catch (err) {
             console.error('Scraping error:', err);
-            isScraping = false;
+
         }
     },
 
-    stopScraping: (req, res) => {
-        isScraping = false;
-        res.json({ message: 'Scraping stopped' });
-    }
+
+
 };

@@ -7,23 +7,29 @@ class ScraperService {
         this.BATCH_SIZE = 10;
     }
 
-    async fetchRecommendations() {
+    async fetchRecommendations(token) {
         try {
             const res = await fetch("https://api.gotinder.com/v2/recs/core", {
                 headers: {
-                    "X-Auth-Token": this.TINDER_TOKEN,
+                    "X-Auth-Token": token,
                     "User-Agent": "Tinder/13.13.0 (iPhone; iOS 15.0; Scale/3.00)",
                     Accept: "application/json",
                 },
             });
 
             const text = await res.text();
-            if (!text.trim()) return [];
+            // If it's empty, just return empty list
+            if (!text || text.trim() === "") {
+                console.warn("⚠️ Empty response from Tinder API, retrying...");
+                return [];
+            }
+
 
             const data = JSON.parse(text);
             return data?.data?.results || [];
         } catch (err) {
-            console.error('Scrape error:', err);
+            console.error("❌ Failed to parse JSON:", err.message);
+
             return [];
         }
     }
@@ -40,14 +46,15 @@ class ScraperService {
         };
     }
 
-    async scrapeBatch() {
-        const profiles = await this.fetchRecommendations();
+    async scrapeBatch(token) {
+        const profiles = await this.fetchRecommendations(token);
         const processed = [];
 
         for (const p of profiles) {
             const profileData = await this.processProfile(p);
+
             processed.push(profileData);
-            await delay(getRandomDelay(2000, 5000));
+            await delay(getRandomDelay(2000, 3000));
         }
 
         return processed;

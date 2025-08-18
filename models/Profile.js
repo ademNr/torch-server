@@ -1,25 +1,38 @@
-module.exports = (sequelize, DataTypes) => {
-    const Profile = sequelize.define('Profile', {
-        id: {
-            type: DataTypes.INTEGER,
-            primaryKey: true,
-            autoIncrement: true
-        },
-        name: DataTypes.STRING,
-        age: DataTypes.INTEGER,
-        distance: DataTypes.INTEGER,
-        tinderId: DataTypes.STRING,
-        scrapedAt: {
-            type: DataTypes.DATE,
-            defaultValue: DataTypes.NOW
-        }
-    }, {
-        timestamps: false
-    });
+const { Model, DataTypes } = require('sequelize');
 
-    Profile.associate = (models) => {
-        Profile.hasMany(models.ProfileImage, { foreignKey: 'profileId' });
-    };
+class Profile extends Model {
+    static init(sequelize) {
+        super.init({
+            name: DataTypes.STRING,
+            age: DataTypes.INTEGER,
+            distance: DataTypes.INTEGER,
+            tinderId: {
+                type: DataTypes.STRING,
+                unique: true // Add unique constraint
+            },
+            scrapedAt: {
+                type: DataTypes.DATE,
+                defaultValue: DataTypes.NOW
+            }
+        }, {
+            sequelize,
+            modelName: 'Profile',
+            timestamps: false,
+            indexes: [
+                {
+                    unique: true,
+                    fields: ['tinderId'] // Ensure database-level uniqueness
+                }
+            ]
+        });
+    }
 
-    return Profile;
-};
+    static associate(models) {
+        this.hasMany(models.ProfileImage, {
+            foreignKey: 'profileId',
+            as: 'images'
+        });
+    }
+}
+
+module.exports = Profile;

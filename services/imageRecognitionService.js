@@ -3,7 +3,8 @@ const axios = require('axios');
 const crypto = require('crypto');
 const fs = require('fs').promises;
 const path = require('path');
-const { ProfileImage } = require('../models');
+const db = require('../models');
+const ProfileImage = db.ProfileImage;
 
 class EnhancedImageRecognizer {
     constructor() {
@@ -42,6 +43,7 @@ class EnhancedImageRecognizer {
         for (let attempt = 0; attempt <= retries; attempt++) {
             try {
                 console.log(`📥 Downloading image (attempt ${attempt + 1}): ${url.substring(0, 80)}...`);
+
 
                 const response = await axios.get(url, {
                     responseType: 'arraybuffer',
@@ -608,7 +610,7 @@ class EnhancedImageRecognizer {
     }
 
     // Enhanced matching with multiple confidence levels
-    async findBestMatches(uploadedSignature, topN = 3) {
+    async findBestMatches(uploadedSignature, topN = 10) {
         if (!uploadedSignature) {
             return {
                 matches: [],
@@ -617,27 +619,67 @@ class EnhancedImageRecognizer {
             };
         }
 
-        console.log(`🎯 Searching for matches in database...`);
+        console.log(`🎯 Searching for matches in database (min similarity: 0.90)...`);
 
-        const allImages = await ProfileImage.findAll();
+        // Get all images with their associated profiles
+        const allImages = await ProfileImage.findAll({
+            include: [{
+                model: db.Profile,
+                as: 'profile',
+                attributes: ['id', 'name', 'age', 'distance', 'scrapedAt']
+            }]
+        });
+
         const matches = [];
+        const profileMap = new Map();
 
         for (const image of allImages) {
-            if (!image.signature) continue;
+            if (!image.signature || !image.profile) continue;
 
-            const similarity = this.calculateEnhancedSimilarity(
-                uploadedSignature,
-                image.signature
-            );
+            try {
+                const similarity = this.calculateEnhancedSimilarity(
+                    uploadedSignature,
+                    image.signature
+                );
 
-            if (similarity >= 0.70) {
-                const profile = await image.getProfile();
-                matches.push({
-                    profile,
-                    image,
-                    similarity,
-                    confidenceLevel: this.getConfidenceLevel(similarity)
-                });
+                // Only consider matches with 90%+ similarity
+                if (similarity >= 0.85) {
+                    const profileId = image.profile.id;
+
+                    if (!profileMap.has(profileId)) {
+                        // Fetch all images for this profile
+                        const profileImages = await ProfileImage.findAll({
+                            where: { profileId },
+                            attributes: ['url']
+                        });
+
+                        const imageUrls = profileImages.map(img => img.url);
+
+                        // Create profile object
+                        const profileObj = {
+                            id: image.profile.id,
+                            name: image.profile.name,
+                            age: image.profile.age,
+                            distance: image.profile.distance,
+                            scrapedAt: image.profile.scrapedAt,
+                            similarity: similarity,
+                            confidenceLevel: this.getConfidenceLevel(similarity),
+                            imageUrls: imageUrls
+                        };
+
+                        matches.push(profileObj);
+                        profileMap.set(profileId, profileObj);
+                    } else {
+                        // Update if this image has higher similarity
+                        const existing = profileMap.get(profileId);
+                        if (similarity > existing.similarity) {
+                            existing.similarity = similarity;
+                            existing.confidenceLevel = this.getConfidenceLevel(similarity);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error(`Error processing image ${image.id}:`, error);
             }
         }
 
@@ -647,10 +689,7 @@ class EnhancedImageRecognizer {
         const bestMatch = matches.length > 0 ? matches[0] : null;
         const confidenceLevel = bestMatch ? bestMatch.confidenceLevel : 'no-match';
 
-        console.log(`🔍 Found ${matches.length} potential matches`);
-        if (bestMatch) {
-            console.log(`🏆 Best match: ${bestMatch.profile.name} (${(bestMatch.similarity * 100).toFixed(1)}% - ${bestMatch.confidenceLevel})`);
-        }
+        console.log(`🔍 Found ${matches.length} matches with 90%+ similarity`);
 
         return {
             matches: matches.slice(0, topN),
@@ -658,7 +697,6 @@ class EnhancedImageRecognizer {
             confidenceLevel,
         };
     }
-
     getConfidenceLevel(similarity) {
         if (similarity >= 0.95) return 'very-high';
         if (similarity >= 0.90) return 'high';

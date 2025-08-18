@@ -1,15 +1,25 @@
-module.exports = (sequelize, DataTypes) => {
-    const ProfileImage = sequelize.define('ProfileImage', {
-        id: {
-            type: DataTypes.INTEGER,
-            primaryKey: true,
-            autoIncrement: true
-        },
-        url: DataTypes.STRING,
-        signature: DataTypes.JSONB
-    }, {
-        timestamps: false
-    });
+const { Model, DataTypes } = require('sequelize');
 
-    return ProfileImage;
-};
+class ProfileImage extends Model {
+    static init(sequelize) {
+        super.init({
+            // Change this line:
+            url: DataTypes.TEXT, // Was DataTypes.STRING
+
+            signature: DataTypes.JSONB
+        }, {
+            sequelize,
+            modelName: 'ProfileImage',
+            timestamps: false
+        });
+    }
+
+    static associate(models) {
+        this.belongsTo(models.Profile, {
+            foreignKey: 'profileId',
+            as: 'profile'
+        });
+    }
+}
+
+module.exports = ProfileImage;
