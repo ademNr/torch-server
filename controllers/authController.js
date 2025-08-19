@@ -3,7 +3,8 @@ const AuthService = require('../services/authService');
 
 module.exports = {
     googleAuth: passport.authenticate('google', {
-        scope: ['profile', 'email']
+        scope: ['profile', 'email'],
+        session: false,
     }),
 
     googleCallback: passport.authenticate('google', {

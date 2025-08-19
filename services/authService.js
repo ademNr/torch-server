@@ -10,7 +10,8 @@ class AuthService {
             clientSecret: process.env.GOOGLE_CLIENT_SECRET,
             callbackURL: process.env.GOOGLE_CALLBACK_URL,
             scope: ['profile', 'email'],
-            state: true
+            state: false,
+
         }, this.verifyCallback));
 
         passport.serializeUser((user, done) => {

@@ -35,20 +35,21 @@ const Profile = require("./models/mongo/Profile");
         app.use(cors());
 
         app.use(cookieParser());
-        app.use(session({
-            secret: process.env.SESSION_SECRET || 'your_secret_key_here',
-            resave: false,
-            saveUninitialized: false,
-            cookie: {
-                secure: process.env.NODE_ENV === 'production',
-                maxAge: 24 * 60 * 60 * 1000 // 24 hours
-            }
-        }));
+        // app.use(session({
+        //     secret: process.env.SESSION_SECRET || 'your_secret_key_here',
+        //     resave: false,
+        //     saveUninitialized: false,
+        //     cookie: {
+        //         secure: process.env.NODE_ENV === 'production',
+        //         maxAge: 24 * 60 * 60 * 1000 // 24 hours
+        //     }
+        // }));
 
         // Initialize authentication
         AuthService.initialize();
-        app.use(passport.initialize());
-        app.use(passport.session());
+        app.use(passport.initialize({ session: false }));
+
+        // app.use(passport.session());
 
         // Middleware
         app.use(express.json({ limit: '10mb' }));
