@@ -25,7 +25,7 @@ import ProfileImage from './models/mongo/ProfileImage.js';
         console.log('✅ Connected to PostgreSQL');
 
         // 2. Connect to MongoDB
-        await mongoose.connect("mongodb+srv://adem123:adem123@ecommerce.doguuf6.mongodb.net/torch");
+        await mongoose.connect("db");
         console.log('✅ Connected to MongoDB');
 
 
