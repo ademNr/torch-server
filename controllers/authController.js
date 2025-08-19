@@ -6,7 +6,10 @@ module.exports = {
         scope: ['profile', 'email']
     }),
 
-
+    googleCallback: passport.authenticate('google', {
+        session: false,
+        failureRedirect: `${process.env.FRONTEND_URL}/login`
+    }),
 
     handleCallback: (req, res) => {
         try {
