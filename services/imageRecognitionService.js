@@ -3,9 +3,15 @@ const axios = require('axios');
 const crypto = require('crypto');
 const fs = require('fs').promises;
 const path = require('path');
-const db = require('../models');
-const ProfileImage = db.ProfileImage;
 
+
+const Profile = require("../models/mongo/Profile");
+const ProfileImage = require("../models/mongo/ProfileImage");
+const { url } = require('inspector');
+// Add this helper function to escape regex special characters
+function escapeRegExp(string) {
+    return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // $& means the whole matched string
+}
 class EnhancedImageRecognizer {
     constructor() {
         console.log('🚀 Enhanced Image Recognition System Initialized');
@@ -609,7 +615,6 @@ class EnhancedImageRecognizer {
         return sum.map(val => val / arrays.length);
     }
 
-    // Enhanced matching with multiple confidence levels
     async findBestMatches(uploadedSignature, topN = 10) {
         if (!uploadedSignature) {
             return {
@@ -619,83 +624,93 @@ class EnhancedImageRecognizer {
             };
         }
 
-        console.log(`🎯 Searching for matches in database (min similarity: 0.90)...`);
+        console.log(`🎯 Searching for matches in database (min similarity: 0.85)...`);
 
-        // Get all images with their associated profiles
-        const allImages = await ProfileImage.findAll({
-            include: [{
-                model: db.Profile,
-                as: 'profile',
-                attributes: ['id', 'name', 'age', 'distance', 'scrapedAt']
-            }]
-        });
+        try {
+            // Pre-filter using prefix match
+            const prefix = uploadedSignature.enhancedHash.dctHash.slice(0, 20);
+            const escapedPrefix = escapeRegExp(prefix); // Use the helper function
 
-        const matches = [];
-        const profileMap = new Map();
-
-        for (const image of allImages) {
-            if (!image.signature || !image.profile) continue;
-
-            try {
-                const similarity = this.calculateEnhancedSimilarity(
-                    uploadedSignature,
-                    image.signature
-                );
-
-                // Only consider matches with 90%+ similarity
-                if (similarity >= 0.85) {
-                    const profileId = image.profile.id;
-
-                    if (!profileMap.has(profileId)) {
-                        // Fetch all images for this profile
-                        const profileImages = await ProfileImage.findAll({
-                            where: { profileId },
-                            attributes: ['url']
-                        });
-
-                        const imageUrls = profileImages.map(img => img.url);
-
-                        // Create profile object
-                        const profileObj = {
-                            id: image.profile.id,
-                            name: image.profile.name,
-                            age: image.profile.age,
-                            distance: image.profile.distance,
-                            scrapedAt: image.profile.scrapedAt,
-                            similarity: similarity,
-                            confidenceLevel: this.getConfidenceLevel(similarity),
-                            imageUrls: imageUrls
-                        };
-
-                        matches.push(profileObj);
-                        profileMap.set(profileId, profileObj);
-                    } else {
-                        // Update if this image has higher similarity
-                        const existing = profileMap.get(profileId);
-                        if (similarity > existing.similarity) {
-                            existing.similarity = similarity;
-                            existing.confidenceLevel = this.getConfidenceLevel(similarity);
-                        }
-                    }
+            const candidateImages = await ProfileImage.find({
+                "signature.enhancedHash.dctHash": {
+                    $regex: `^${escapedPrefix}`
                 }
-            } catch (error) {
-                console.error(`Error processing image ${image.id}:`, error);
-            }
+            })
+                .populate('profile', 'name age distance scrapedAt tinderId')
+                .lean();
+
+            // Calculate similarities
+            const matchesWithSimilarity = candidateImages.map(image => {
+                const similarity = this.calculateEnhancedSimilarity(image.signature, uploadedSignature);
+                return { image, similarity };
+            });
+
+            // Filter and sort
+            const filteredMatches = matchesWithSimilarity
+                .filter(match => match.similarity >= 0.85)
+                .sort((a, b) => b.similarity - a.similarity)
+                .slice(0, topN);
+
+            // Get unique profile IDs
+            const profileIds = [...new Set(filteredMatches.map(match => match.image.profile._id.toString()))];
+
+            // Fetch all images for these profiles
+            const profileImages = await ProfileImage.find(
+                { profile: { $in: profileIds } },
+                { url: 1, profile: 1 }
+            ).lean();
+
+            // Create mapping of profile ID → image URLs
+            const profileImageMap = new Map();
+            profileImages.forEach(img => {
+                const profileId = img.profile.toString();
+                if (!profileImageMap.has(profileId)) {
+                    profileImageMap.set(profileId, []);
+                }
+                profileImageMap.get(profileId).push(img.url);
+            });
+
+            // Format results
+            const formattedMatches = filteredMatches.map(match => {
+                const confidenceLevel =
+                    match.similarity >= 0.95 ? 'very-high' :
+                        match.similarity >= 0.90 ? 'high' : 'medium';
+
+                const profileId = match.image.profile._id.toString();
+                const imageUrls = profileImageMap.get(profileId) || [];
+
+                return {
+                    // Profile data
+                    profileId: profileId,
+                    name: match.image.profile.name,
+                    age: match.image.profile.age,
+                    distance: match.image.profile.distance,
+                    scrapedAt: match.image.profile.scrapedAt,
+                    tinderId: match.image.profile.tinderId,
+
+                    // Image data
+                    matchedImageId: match.image._id,
+                    matchedImageUrl: match.image.url,
+                    imageUrls: imageUrls,
+
+                    similarity: match.similarity,
+                    confidenceLevel
+                };
+            });
+
+            return {
+                matches: formattedMatches,
+                bestMatch: formattedMatches[0] || null,
+                confidenceLevel: formattedMatches[0]?.confidenceLevel || 'no-match',
+            };
+        } catch (error) {
+            console.error('Error in findBestMatches:', error);
+            return {
+                matches: [],
+                bestMatch: null,
+                confidenceLevel: 'error',
+            };
         }
-
-        // Sort by similarity (highest first)
-        matches.sort((a, b) => b.similarity - a.similarity);
-
-        const bestMatch = matches.length > 0 ? matches[0] : null;
-        const confidenceLevel = bestMatch ? bestMatch.confidenceLevel : 'no-match';
-
-        console.log(`🔍 Found ${matches.length} matches with 90%+ similarity`);
-
-        return {
-            matches: matches.slice(0, topN),
-            bestMatch,
-            confidenceLevel,
-        };
     }
     getConfidenceLevel(similarity) {
         if (similarity >= 0.95) return 'very-high';

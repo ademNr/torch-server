@@ -1,8 +1,7 @@
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
 const jwt = require('jsonwebtoken');
-const db = require('../models');
-const User = db.User;
+const User = require('../models/mongo/User'); // Changed to Mongoose model
 
 class AuthService {
     static initialize() {
@@ -20,7 +19,7 @@ class AuthService {
 
         passport.deserializeUser(async (id, done) => {
             try {
-                const user = await User.findByPk(id);
+                const user = await User.findById(id);
                 done(null, user);
             } catch (err) {
                 done(err, null);
@@ -30,20 +29,22 @@ class AuthService {
 
     static async verifyCallback(accessToken, refreshToken, profile, done) {
         try {
-            // Extract profile information
             const email = profile.emails[0].value;
             const name = profile.displayName;
             const googleId = profile.id;
 
-            // Find or create user
-            const [user] = await User.findOrCreate({
-                where: { googleId },
-                defaults: {
+            // Find or create user using Mongoose
+            let user = await User.findOne({ googleId });
+
+            if (!user) {
+                user = new User({
+                    googleId,
                     email,
                     name,
                     credits: 1
-                }
-            });
+                });
+                await user.save();
+            }
 
             return done(null, user);
         } catch (error) {
@@ -73,7 +74,7 @@ class AuthService {
             const decoded = this.verifyToken(token);
             if (!decoded) return null;
 
-            return await User.findByPk(decoded.id);
+            return await User.findById(decoded.id);
         } catch (error) {
             return null;
         }

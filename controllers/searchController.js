@@ -1,9 +1,9 @@
 const { authenticate } = require('../middleware/authMiddleware');
 const recognizer = require('../config/recognizer');
 const multer = require('multer');
-const db = require('../models');
-const User = db.User;
 
+
+const User = require('../models/mongo/User'); // MongoDB User model
 // Multer configuration
 const storage = multer.memoryStorage();
 const upload = multer({
@@ -27,21 +27,25 @@ const uploadMiddleware = (req, res, next) => {
 
 module.exports = {
     searchByImage: [
-        authenticate(), // Authenticates user
+        //  authenticate(), // Authenticates user
         uploadMiddleware,
         async (req, res) => {
             const userId = req.user.id; // Get user ID from authenticated request
             console.log(req.user.credits);
             try {
                 // 1. Atomically deduct credit
-                const creditDeducted = await db.User.deductCreditAtomic(userId);
-
-                if (!creditDeducted) {
+                // Deduct credit - MongoDB version
+                const user = await User.findById(userId);
+                if (user.credits < 1) {
                     return res.status(403).json({
-                        error: 'Insufficient credits. Please recharge to continue using the service.',
-                        credits: req.user.credits
+                        error: 'Insufficient credits',
+                        credits: user.credits
                     });
                 }
+
+                user.credits -= 1;
+                await user.save();
+
 
                 // 2. Process the image
                 if (!req.file) {
@@ -58,24 +62,19 @@ module.exports = {
                 // 3. Perform search
                 const searchResults = await recognizer.findBestMatches(signature, 10);
 
-                // 4. Get updated credit count
-                const updatedUser = await db.User.findByPk(userId);
+
 
                 // 5. Return successful response
+
                 res.json({
                     ...searchResults,
-                    credits: updatedUser.credits,
+                    credits: user.credits - 1,
                     message: `Search completed. ${searchResults.matches.length} matches found.`
                 });
 
             } catch (err) {
                 // 6. Refund credit on error
-                try {
-                    await db.User.refundCreditAtomic(userId);
-                    console.log('Refunded 1 credit due to search error');
-                } catch (refundError) {
-                    console.error('Credit refund failed:', refundError);
-                }
+                await User.findByIdAndUpdate(userId, { $inc: { credits: 1 } });
 
                 // Error handling (same as before)
                 let errorMessage = err.message;
@@ -84,7 +83,7 @@ module.exports = {
                 }
 
                 // Get current credit balance
-                const currentUser = await db.User.findByPk(userId);
+                const currentUser = await User.findById(userId);
 
                 res.status(500).json({
                     error: errorMessage,

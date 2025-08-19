@@ -1,6 +1,6 @@
 const fetch = require('node-fetch');
 const { delay, getRandomDelay } = require('../utils/helpers');
-
+const Profile = require('../models/mongo/Profile'); // Update import
 class ScraperService {
     constructor() {
         this.TINDER_TOKEN = process.env.TINDER_TOKEN;
@@ -52,6 +52,13 @@ class ScraperService {
 
         for (const p of profiles) {
             const profileData = await this.processProfile(p);
+
+            // Check for duplicate using MongoDB
+            const exists = await Profile.findOne({ tinderId: profileData.tinderId });
+            if (exists) {
+                console.log(`Skipping duplicate: ${profileData.tinderId}`);
+                continue;
+            }
 
             processed.push(profileData);
             await delay(getRandomDelay(2000, 3000));

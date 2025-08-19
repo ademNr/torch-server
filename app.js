@@ -1,12 +1,11 @@
 require('dotenv').config();
 const express = require('express');
 const passport = require('passport');
-const db = require('./models');
+const mongoose = require('mongoose'); // Added Mongoose
 const scrapeRoutes = require('./routes/scrape');
 const searchRoutes = require('./routes/search');
 const authRoutes = require('./routes/auth');
-// const AuthService = require('./services/authService');
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const AuthService = require('./services/authService');
 const recognizer = require('./config/recognizer');
 const { authenticate } = require('./middleware/authMiddleware');
 const cors = require('cors');
@@ -14,23 +13,27 @@ const session = require('express-session');
 const cookieParser = require('cookie-parser');
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-
-
-
-// Initialize services
+const ProfileImage = require("./models/mongo/ProfileImage");
+const Profile = require("./models/mongo/Profile");
 (async () => {
     try {
+        // MongoDB connection
+        await mongoose.connect(process.env.MONGO_URI, {
+            useNewUrlParser: true,
+            useUnifiedTopology: true
+        });
+        console.log('✅ MongoDB connected');
+        // Build indexes in background
+        await ProfileImage.ensureIndexes();
+        await Profile.ensureIndexes();
 
-        // Database connection
-        await db.sequelize.authenticate();
-        console.log('Database connected');
-        // Session middleware
+        console.log('Indexes initialized');
 
-        // Sync models
-        await db.sequelize.sync({ alter: true });
-        console.log('Database synchronized');
+        // Initialize cache directories
+        await recognizer.initializeCacheDirectories();
+
         app.use(cors());
+
         app.use(cookieParser());
         app.use(session({
             secret: process.env.SESSION_SECRET || 'your_secret_key_here',
@@ -41,33 +44,11 @@ const PORT = process.env.PORT || 3000;
                 maxAge: 24 * 60 * 60 * 1000 // 24 hours
             }
         }));
+
         // Initialize authentication
-        passport.use(new GoogleStrategy({
-            clientID: process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-            callbackURL: process.env.GOOGLE_CALLBACK_URL || '/auth/google/callback',
-            scope: ['profile', 'email']
-        }, async (accessToken, refreshToken, profile, done) => {
-            try {
-                const email = profile.emails[0].value;
-                const name = profile.displayName;
-                const googleId = profile.id;
-
-                const [user] = await db.User.findOrCreate({
-                    where: { googleId },
-                    defaults: { email, name, credits: 1 }
-                });
-
-                return done(null, user);
-            } catch (error) {
-                return done(error, null);
-            }
-        }));
-
+        AuthService.initialize();
         app.use(passport.initialize());
-
-        // Initialize cache directories
-        await recognizer.initializeCacheDirectories();
+        app.use(passport.session());
 
         // Middleware
         app.use(express.json({ limit: '10mb' }));
@@ -76,19 +57,14 @@ const PORT = process.env.PORT || 3000;
         // Routes
         app.use('/auth', authRoutes);
         app.use('/scrape', scrapeRoutes);
-        app.use('/search', authenticate(), searchRoutes); // Protected route
+        app.use('/search', authenticate(), searchRoutes);
 
-        // Health check endpoint
+        // Health check
         app.get('/', (req, res) => {
             res.send('✅ Backend is working!');
         });
 
-        // Protected user endpoint
-        app.get('/protected', authenticate(), (req, res) => {
-            res.json({ message: 'Protected resource', user: req.user });
-        });
-
-        // Error handling middleware
+        // Error handling
         app.use((err, req, res, next) => {
             console.error('Global error:', err);
             res.status(500).json({ error: 'Internal server error' });
@@ -103,4 +79,3 @@ const PORT = process.env.PORT || 3000;
         process.exit(1);
     }
 })();
-

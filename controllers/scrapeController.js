@@ -1,8 +1,7 @@
 const scraperService = require('../services/scraperService');
 const recognizer = require('../config/recognizer');
-const { Profile, ProfileImage } = require('../models');
-//const cleanupService = require('../services/cleanupService');
-
+const Profile = require('../models/mongo/Profile');
+const ProfileImage = require('../models/mongo/ProfileImage');
 
 module.exports = {
     startScraping: async (req, res) => {
@@ -12,15 +11,18 @@ module.exports = {
             return res.status(400).json({ error: 'token is required' });
         }
 
-        res.json({ message: 'Scraping started with', token: token });
+        res.json({ message: 'Scraping started', token: token });
 
         try {
             while (true) {
                 const batch = await scraperService.scrapeBatch(token);
                 for (const profileData of batch) {
                     try {
-                        // Save profile to DB
-                        const profile = await Profile.create(profileData);
+                        // Create profile with images
+                        const newProfile = new Profile({
+                            ...profileData,
+                            scrapedAt: new Date()
+                        });
 
                         // Process and save images
                         for (const imageUrl of profileData.imageUrls) {
@@ -29,17 +31,22 @@ module.exports = {
                                 const signature = await recognizer.getEnhancedImageSignature(buffer);
 
                                 if (signature) {
-                                    await ProfileImage.create({
-                                        profileId: profile.id,
+                                    const newImage = new ProfileImage({
                                         url: imageUrl,
                                         signature
                                     });
+                                    await newImage.save();
+
+                                    // Add image reference to profile
+                                    newProfile.images.push(newImage._id);
                                 }
-                                console.log(token);
                             } catch (error) {
                                 console.error(`Image processing error: ${error.message}`);
                             }
                         }
+
+                        await newProfile.save();
+                        console.log(`Saved profile: ${newProfile.name}`);
                     } catch (error) {
                         console.error(`Profile processing error: ${error.message}`);
                     }
@@ -47,10 +54,6 @@ module.exports = {
             }
         } catch (err) {
             console.error('Scraping error:', err);
-
         }
-    },
-
-
-
+    }
 };
