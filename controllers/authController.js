@@ -39,6 +39,7 @@ module.exports = {
                 credits: user.credits
             });
         } catch (err) {
+
             res.status(401).json({ error: 'Invalid token' });
         }
     }
