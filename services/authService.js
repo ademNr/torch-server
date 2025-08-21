@@ -42,7 +42,7 @@ class AuthService {
                     googleId,
                     email,
                     name,
-                    credits: 1
+                    credits: 0
                 });
                 await user.save();
             }
