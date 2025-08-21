@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { searchByImage } = require('../controllers/searchController');
+const { searchByImage, searchByFilters } = require('../controllers/searchController');
 
 // Add a dedicated error handler for this route
 router.post('/image-search', ...searchByImage, (err, req, res, next) => {
@@ -9,5 +9,5 @@ router.post('/image-search', ...searchByImage, (err, req, res, next) => {
         return res.status(500).json({ error: 'Internal server error' });
     }
 });
-
+router.post('/profile-search', ...searchByFilters);
 module.exports = router;

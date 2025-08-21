@@ -2,7 +2,8 @@ const { authenticate } = require('../middleware/authMiddleware');
 const recognizer = require('../config/recognizer');
 const multer = require('multer');
 
-
+const Profile = require('../models/mongo/Profile');
+const ProfileImage = require('../models/mongo/ProfileImage');
 const User = require('../models/mongo/User'); // MongoDB User model
 // Multer configuration
 const storage = multer.memoryStorage();
@@ -27,7 +28,7 @@ const uploadMiddleware = (req, res, next) => {
 
 module.exports = {
     searchByImage: [
-        //  authenticate(), // Authenticates user
+        authenticate(),
         uploadMiddleware,
         async (req, res) => {
             const userId = req.user.id; // Get user ID from authenticated request
@@ -94,6 +95,111 @@ module.exports = {
         }
     ],
     // Add endpoint to check credits without performing search
+    searchByFilters: [
+        authenticate(),
+        async (req, res) => {
+            try {
+                const { name, minAge, maxAge } = req.body;
+                const userId = req.user.id;
+                const user = await User.findById(userId);
+
+                if (user.credits < 1) {
+                    return res.status(403).json({
+                        error: 'Insufficient credits',
+                        credits: user.credits
+                    });
+                }
+
+                user.credits -= 1;
+                await user.save();
+
+                const limit = 20; // Default limit as requested
+
+                // Build filter object
+                const filter = {};
+
+                // Name filter (case-insensitive partial match)
+                if (name) {
+                    filter.name = { $regex: name, $options: 'i' };
+                }
+
+                // Age filter
+                if (minAge !== undefined || maxAge !== undefined) {
+                    filter.age = {};
+                    if (minAge !== undefined) filter.age.$gte = parseInt(minAge);
+                    if (maxAge !== undefined) filter.age.$lte = parseInt(maxAge);
+                }
+
+                // Execute query - first find profiles
+                const profiles = await Profile.find(filter)
+                    .limit(limit)
+                    .sort({ scrapedAt: -1 });
+
+                // Get all profile IDs
+                const profileIds = profiles.map(profile => profile._id);
+
+                // Find all images associated with these profiles in a single query
+                const images = await ProfileImage.find({
+                    profile: { $in: profileIds }
+                });
+
+                // Group images by profile ID for easier lookup
+                const imagesByProfile = {};
+                images.forEach(image => {
+                    const profileId = image.profile.toString();
+                    if (!imagesByProfile[profileId]) {
+                        imagesByProfile[profileId] = [];
+                    }
+                    imagesByProfile[profileId].push(image);
+                });
+
+                // Format the response and filter out profiles with no images
+                const matches = profiles
+                    .map(profile => {
+                        const profileId = profile._id.toString();
+                        const profileImages = imagesByProfile[profileId] || [];
+
+                        // Skip profiles with no images
+                        if (profileImages.length === 0) {
+                            return null;
+                        }
+
+                        // Get all image URLs
+                        const imageUrls = profileImages.map(img => img.url);
+
+                        // Use the first image as the matched image
+                        const matchedImage = profileImages[0];
+
+                        return {
+                            profileId: profile._id,
+                            name: profile.name,
+                            age: profile.age,
+                            distance: profile.distance,
+                            scrapedAt: profile.scrapedAt,
+                            tinderId: profile.tinderId,
+                            matchedImageId: matchedImage._id,
+                            matchedImageUrl: matchedImage.url,
+                            imageUrls: imageUrls,
+                            similarity: 1, // Default value since we're not doing image matching
+                            confidenceLevel: "very-high" // Default value
+                        };
+                    })
+                    .filter(match => match !== null); // Remove null entries (profiles with no images)
+
+                res.json({
+                    matches: matches
+                });
+
+            } catch (err) {
+                console.error('Search error:', err);
+                res.status(500).json({
+                    error: 'Search failed',
+                    details: process.env.NODE_ENV === 'development' ? err.message : undefined
+                });
+            }
+        }
+    ],
+
     checkCredits: [
         authenticate(),
         (req, res) => {
