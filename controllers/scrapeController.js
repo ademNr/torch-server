@@ -21,9 +21,11 @@ module.exports = {
                         // Create profile with images
                         const newProfile = new Profile({
                             ...profileData,
-                            scrapedAt: new Date()
+                            scrapedAt: new Date(),
+                            images: []
                         });
-
+                        const savedProfile = await newProfile.save();
+                        console.log(savedProfile.id);
                         // Process and save images
                         for (const imageUrl of profileData.imageUrls) {
                             try {
@@ -32,8 +34,10 @@ module.exports = {
 
                                 if (signature) {
                                     const newImage = new ProfileImage({
+                                        profile: savedProfile.id,
                                         url: imageUrl,
                                         signature
+
                                     });
                                     await newImage.save();
 
@@ -46,7 +50,7 @@ module.exports = {
                         }
 
                         await newProfile.save();
-                        console.log(`Saved profile: ${newProfile.name}`);
+                        console.log(`Saved profile: ${newProfile.name} with ${newProfile.images.length} images`);
                     } catch (error) {
                         console.error(`Profile processing error: ${error.message}`);
                     }
