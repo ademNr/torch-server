@@ -5,7 +5,7 @@ const userSchema = new mongoose.Schema({
     googleId: { type: String, unique: true, required: true },
     email: { type: String, unique: true, required: true },
     name: { type: String, required: true },
-    credits: { type: Number, default: 1 }
+    credits: { type: Number, default: 0 }
 }, { timestamps: true });
 
 module.exports = mongoose.model('User', userSchema);
